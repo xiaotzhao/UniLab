@@ -5,7 +5,7 @@ training:
 algo:
   num_envs: 4096
   learning_starts: 10
-  max_iterations: 10000
+  max_iterations: 50000
   save_interval: 2000
   updates_per_step: 8
   use_symmetry: true
@@ -45,7 +45,9 @@ reward:
     penalty_ang_vel_xy: -1.0
     penalty_orientation: -10.0
     penalty_action_rate: -4.0
-    pose: -0.5
+    action_rate: -2
+    pose: -0.1
+    upper_body_pose: -0.5
     penalty_feet_ori: -20.0
     feet_phase: 5.0
     alive: 10.0
