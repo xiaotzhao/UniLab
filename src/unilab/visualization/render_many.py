@@ -92,6 +92,53 @@ import mujoco  # noqa: E402
 import numpy as np
 
 
+def _render_force_arrow(scene, base_pos: np.ndarray, force_vec: np.ndarray) -> None:
+    """Add a force arrow geom to the MuJoCo scene for visualization.
+
+    Args:
+        scene: mujoco.MjvScene
+        base_pos: (3,) world-frame position of the arrow base (e.g. pelvis pos)
+        force_vec: (3,) force vector in Newtons; length encodes magnitude
+    """
+    mag = float(np.linalg.norm(force_vec))
+    if mag < 0.1 or scene.ngeom >= scene.maxgeom:
+        return
+
+    # Scale: 40 N → 0.6 m arrow length, capped
+    length = min(mag / 40.0 * 0.6, 0.8)
+    direction = force_vec / mag
+
+    # Rotation matrix mapping local +Z to force direction (Rodrigues formula)
+    z = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    cross = np.cross(z, direction)
+    cross_norm = np.linalg.norm(cross)
+    if cross_norm < 1e-6:
+        mat = np.eye(3, dtype=np.float32) if direction[2] > 0 else np.diag([1.0, -1.0, -1.0]).astype(np.float32)
+    else:
+        axis = cross / cross_norm
+        angle = float(np.arccos(np.clip(np.dot(z, direction), -1.0, 1.0)))
+        c, s, t = np.cos(angle), np.sin(angle), 1.0 - np.cos(angle)
+        ax, ay, az = axis
+        mat = np.array([
+            [t*ax*ax + c,      t*ax*ay - s*az,  t*ax*az + s*ay],
+            [t*ax*ay + s*az,   t*ay*ay + c,     t*ay*az - s*ax],
+            [t*ax*az - s*ay,   t*ay*az + s*ax,  t*az*az + c   ],
+        ], dtype=np.float32)
+
+    arrow_rgba = np.array([1.0, 0.5, 0.0, 0.9], dtype=np.float32)  # orange
+    arrow_size = np.array([0.04, 0.08, length], dtype=np.float32)
+
+    mujoco.mjv_initGeom(
+        scene.geoms[scene.ngeom],
+        type=mujoco.mjtGeom.mjGEOM_ARROW,
+        size=arrow_size,
+        pos=base_pos.astype(np.float32),
+        mat=mat.flatten(),
+        rgba=arrow_rgba,
+    )
+    scene.ngeom += 1
+
+
 def get_grid_offsets(num_envs, spacing=1.0):
     rows = int(math.ceil(math.sqrt(num_envs)))
     cols = int(math.ceil(num_envs / rows))
@@ -345,28 +392,36 @@ def render_frame_job(args):
             mujoco.mjv_addGeoms(model, data, vopt, pert, catmask_static, renderer.scene)
             vopt.geomgroup[0] = geomgroup0
 
-    # 3. Overlay marker spheres (e.g. EE goal positions)
+    # 3. Overlay marker spheres or force arrows depending on marker_positions columns:
+    #    shape (n, 3)  → sphere at position
+    #    shape (n, 6)  → force arrow: [:3] = base pos, [3:] = force vector (N)
     if marker_positions is not None:
         scene = renderer.scene
-        sphere_rgba = np.array([1.0, 0.2, 0.2, 0.8], dtype=np.float32)
-        sphere_size = np.array([0.025, 0.0, 0.0], dtype=np.float32)
         eye3 = np.eye(3, dtype=np.float32).flatten()
+        use_arrows = marker_positions.shape[1] >= 6
+        if not use_arrows:
+            sphere_rgba = np.array([1.0, 0.2, 0.2, 0.8], dtype=np.float32)
+            sphere_size = np.array([0.025, 0.0, 0.0], dtype=np.float32)
         for env_idx in range(num_envs):
             if scene.ngeom >= scene.maxgeom:
                 break
-            pos = marker_positions[env_idx].astype(np.float32).copy()
+            pos = marker_positions[env_idx, :3].astype(np.float32).copy()
             if offsets is not None:
                 pos[0] += float(offsets[env_idx, 0])
                 pos[1] += float(offsets[env_idx, 1])
-            mujoco.mjv_initGeom(
-                scene.geoms[scene.ngeom],
-                type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                size=sphere_size,
-                pos=pos,
-                mat=eye3,
-                rgba=sphere_rgba,
-            )
-            scene.ngeom += 1
+            if use_arrows:
+                force = marker_positions[env_idx, 3:6].astype(np.float32)
+                _render_force_arrow(scene, pos, force)
+            else:
+                mujoco.mjv_initGeom(
+                    scene.geoms[scene.ngeom],
+                    type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                    size=sphere_size,
+                    pos=pos,
+                    mat=eye3,
+                    rgba=sphere_rgba,
+                )
+                scene.ngeom += 1
 
     return renderer.render()
 

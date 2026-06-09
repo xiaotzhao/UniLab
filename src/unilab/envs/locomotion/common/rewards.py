@@ -74,6 +74,19 @@ def forward_progress(ctx: RewardContext) -> np.ndarray:
     forward_speed = np.maximum(ctx.linvel[:, 0], 0.0)
     return np.asarray(np.minimum(forward_speed / commanded_speed, 1.0), dtype=get_global_dtype())
 
+def move_progress(ctx: RewardContext) -> np.ndarray:
+    """Reward for move progress relative to commanded speed."""
+    commands = ctx.info["commands"]
+    cmd_vx = commands[:, 0]
+    vel_vx = ctx.linvel[:, 0]
+    small_cmd = np.abs(cmd_vx) < 1e-6
+    reward = np.ones_like(cmd_vx)
+    direction_correct = (cmd_vx * vel_vx) > 0.0
+    ratio = np.abs(vel_vx) / np.maximum(np.abs(cmd_vx), 1e-6)
+    ratio = np.clip(ratio, 0.0, 1.0)
+    reward = np.where(direction_correct, ratio, 0.0)
+    reward = np.where(small_cmd, 1.0, reward)
+    return np.asarray(reward, dtype=get_global_dtype())
 
 def under_speed(ctx: RewardContext) -> np.ndarray:
     """Penalty for being below commanded forward speed."""
@@ -83,6 +96,22 @@ def under_speed(ctx: RewardContext) -> np.ndarray:
     gap = np.maximum(commands[:, 0] - forward_speed, 0.0)
     return np.asarray(gap / commanded_speed, dtype=get_global_dtype())
 
+def under_speed_consider_stand(ctx: RewardContext) -> np.ndarray:
+    """Penalty for being below commanded move speed."""
+    commands = ctx.info["commands"]
+    small_cmd = np.abs(commands[:, 0]) < 1e-6
+    small_penalty = np.clip(np.abs(ctx.linvel[:, 0])*0.1,0,0.1)
+
+    commanded_speed = np.maximum(np.abs(commands[:, 0]), 1e-6)
+    forward_speed = np.abs(ctx.linvel[:, 0])
+    gap = np.maximum(np.abs(commands[:, 0]) - forward_speed, 0.0)
+    normal_penalty = np.clip(gap / commanded_speed,0,1)
+
+    direction_incorrect = (commands[:, 0] * ctx.linvel[:, 0]) < 0.0
+
+    penalty = np.where(small_cmd, small_penalty, normal_penalty)
+    penalty = np.where(direction_incorrect & ~small_cmd, 1, penalty)
+    return np.asarray(penalty, dtype=get_global_dtype())
 
 # ── velocity / orientation penalties ─────────────────────────────────
 
@@ -126,6 +155,9 @@ def base_height(ctx: RewardContext) -> np.ndarray:
     """Penalty for base height deviation from target."""
     return np.square(ctx.base_height - ctx.base_height_target)  # type: ignore[no-any-return]
 
+def base_height_interval(ctx: RewardContext) -> np.ndarray:
+    """Penalty for base height deviation from target."""
+    return np.square(np.maximum(np.abs(ctx.base_height - ctx.base_height_target) - 0.05, 0.0)) # type: ignore[no-any-return]
 
 def similar_to_default(ctx: RewardContext) -> np.ndarray:
     """Penalty for joint position deviation from default (L1 norm)."""

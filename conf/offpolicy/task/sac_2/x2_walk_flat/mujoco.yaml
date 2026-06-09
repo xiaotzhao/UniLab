@@ -1,0 +1,70 @@
+# @package _global_
+# X2WalkFlat — X2 人形机器人平地行走 SAC 训练配置
+# 参数与 G1 SAC (g1_walk_flat/mujoco.yaml) 完全一致，仅保留 X2 尺寸差异
+# 关节顺序（actuator = kinematic-tree DFS）：
+#   [0-5]   左腿  [6-11]  右腿  [12-14]  腰部（锁死 range=0）
+#   [15-21] 左臂  [22-28] 右臂  [29-30]  头部
+
+training:
+  task_name: X2WalkFlat
+  sim_backend: mujoco
+
+algo:
+  num_envs: 2048
+  learning_starts: 10
+  max_iterations: 5000
+  save_interval: 500
+  updates_per_step: 8
+  use_symmetry: false     # X2 action mask 冻结上半身后 action 维度(12)与 joint_map(31) 不匹配
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
+
+env:
+  control_config:
+    action_scale: 1.0
+  gait_phase_init_mode: "offset_phase"
+  reset_base_qvel_limit: 0.5
+  curriculum:
+    enabled: true
+    initial_scale: 0.5
+    min_scale: 0.5
+    max_scale: 1.0
+    level_down_threshold: 150.0
+    level_up_threshold: 750.0
+    degree: 0.001
+  noise_config:
+    level: 1.0
+    scale_gyro: 0.0
+    scale_gravity: 0.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 0.1
+    scale_linvel: 0.0
+  domain_rand:
+    push_robots: true
+    push_interval: 750
+    max_force: [1.0, 1.0, 0.5]
+    push_body_name: pelvis
+
+# ── 奖励权重：与 G1 SAC 完全一致 ──
+reward:
+  scales:
+    tracking_lin_vel: 2.0
+    tracking_ang_vel: 1.5
+    penalty_ang_vel_xy: -1.0
+    penalty_orientation: -10.0
+    penalty_action_rate: -4.0
+    pose: -0.5
+    penalty_feet_ori: -20.0
+    feet_phase: 5.0
+    alive: 10.0
+  tracking_sigma: 0.25
+  base_height_target: 0.62           # X2 尺寸差异
+  min_base_height: 0.40              # X2 尺寸差异
+  max_tilt_deg: 65.0
+  gait_frequency: 1.5
+  feet_phase_swing_height: 0.09
+  feet_phase_tracking_sigma: 0.04
+  close_feet_threshold: 0.15
+  # ── 关节 pose 权重（X2 31 个关节，G1 为 29 个）──
+  pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]

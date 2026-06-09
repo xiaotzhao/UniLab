@@ -21,7 +21,7 @@ class Commands:
     heading_command: bool = False
     heading_range: list[float] = field(default_factory=lambda: [-3.14, 3.14])
     heading_control_stiffness: float = 0.5
-    rel_standing_envs: float = 0.0
+    rel_standing_envs: float = 0.1
 
 
 def sample_velocity_commands(
